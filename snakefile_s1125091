@@ -1,0 +1,92 @@
+rule all:
+    input:
+        expand("inventarisatie_file{nummer}", nummer=[1,2]),
+	expand("inventarisatie_file{nummer}_trim", nummer=[1,2]),
+        "lclav_genome.fa",
+        "bngsa_nietinfected_1_trimmed.fastq",
+        "bngsa_nietinfected_2_trimmed.fastq",
+        "SAMPLE.s",
+        "output.bam",
+        "sorted_output.bam",
+        "output.vcf.gz",
+        "output_unzipped.vcf",
+        "consensus_output.fa",
+        "output_onderzoek"
+
+rule clavipes_genoom:
+    output:
+       "lclav_genome.fa"
+    shell: """
+    path=$(pwd)
+    cp /exports/BNGP/refgenome/lclav_genome.fa $path
+    """
+
+rule inventarisatie:
+  input:
+    a = "/exports/BNGP/reads/bngsa_nietinfected_{nummer}.fastq"
+  output:
+    b = "inventarisatie_file{nummer}"
+  script:
+    "inventarisatie.py"
+
+rule trim:
+  input:
+    file1 = "/exports/BNGP/reads/bngsa_nietinfected_1.fastq",
+    file2 = "/exports/BNGP/reads/bngsa_nietinfected_2.fastq"
+  output:
+    output1 = "bngsa_nietinfected_1_trimmed.fastq",
+    output2 = "bngsa_nietinfected_2_trimmed.fastq"
+  script:
+     "trim.py"	
+
+rule inventarisatie_trim:
+  input:
+    a = "bngsa_nietinfected_{nummer}_trimmed.fastq"
+  output:
+    b = "inventarisatie_file{nummer}_trim"
+  script:
+    "inventarisatie.py"
+
+rule alignement_bowtie:
+  input:
+    "lclav_genome.fa"
+  output:
+    "SAMPLE.s"
+  shell: """
+  bowtie2-build lclav_genome.fa L.clavipes
+  bowtie2 -x L.clavipes -1 bngsa_nietinfected_1_trimmed.fastq -2 bngsa_nietinfected_2_trimmed.fastq -p 4 -S SAMPLE.s
+  """
+
+rule sam_bam:
+  input:
+    "SAMPLE.s"
+  output:
+    "output.bam",
+    "sorted_output.bam",
+    "output.vcf.gz",
+    "output_unzipped.vcf"
+  shell: """
+  samtools view -S -b SAMPLE.s > output.bam
+  samtools sort output.bam -o sorted_output.bam
+  bcftools mpileup -Ou -f lclav_genome.fa sorted_output.bam | bcftools call -mv -Oz -o output.vcf.gz
+  gunzip -c output.vcf.gz > output_unzipped.vcf
+  """
+
+rule consensus:
+  input:
+    "output.vcf.gz",
+    "lclav_genome.fa"
+  output:
+    "consensus_output.fa"
+  shell: """
+  bcftools index output.vcf.gz
+  cat lclav_genome.fa | bcftools consensus output.vcf.gz > consensus_ouput.fa
+  """
+
+rule onderzoek:
+  input:
+    a = "output_unzipped.vcf"
+  output:
+    b = "output_onderzoek"
+  script:
+    "onderzoek.py"
